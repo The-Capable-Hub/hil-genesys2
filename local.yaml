@@ -1,0 +1,12 @@
+targets:
+  main:
+    resources:
+      RawSerialPort:
+        port: "/dev/serial/by-path/pci-0000:00:0b.0-usb-0:1.1:1.0-port0"
+    drivers:
+      SerialDriver: {}
+      ShellDriver:
+        login_timeout: 240
+        prompt: '# '
+        login_prompt: 'buildroot login: '
+        username: 'root'

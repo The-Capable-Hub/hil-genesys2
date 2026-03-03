@@ -1,0 +1,47 @@
+name: Boot Test
+
+on:
+  push:
+    branches:
+      - 'main'
+  pull_request:
+    types: [review_requested]
+
+jobs:
+   Boot_Test:
+      # Ensure we have access to he Genesys2 board in The Capable Hub's farm
+      runs-on: [the-capable-hub-farm, board:Genesys2]
+
+      steps:
+        - name: Check out repository
+          uses: actions/checkout@v5
+
+        - name: Flash FPGA bitstream
+          run: |
+            # Power on board
+            sudo usbrelay HURTM_1=1
+
+            # Download and flash bistream
+            wget https://github.com/openhwgroup/cva6/releases/download/v4.2.0/ariane_xilinx.bit
+            sudo openFPGALoader -b genesys2 ariane_xilinx.bit
+        - name: Flash SD card
+          run: |
+            # Power off board
+            sudo usbrelay HURTM_1=0
+
+            # Flash image to SD card
+            sudo usbsdmux /dev/sg1 host
+            wget https://github.com/openhwgroup/cva6-sdk/releases/download/v0.3.0-op/bbl.bin
+            sudo dd if=bbl.bin of=/dev/sda bs=4M oflag=sync
+            sudo usbsdmux /dev/sg1 dut
+        - name: Verify Boot
+          run: |
+            # Power on board
+            sudo usbrelay HURTM_1=1
+
+            # Wait for login prompt
+            source /opt/labgrid-env/bin/activate
+            sudo -E `which pytest` --lg-env local.yaml --capture=no test_shell.py
+
+            # Power off board
+            sudo usbrelay HURTM_1=0
