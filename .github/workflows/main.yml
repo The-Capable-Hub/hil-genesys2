@@ -7,41 +7,72 @@ on:
   pull_request:
     types: [review_requested]
 
+# This workflow demonstrates how to build software via The Capable Hub's AWS CI and then
+# use those artifacts in a workflow that runs on The Capable Hub's board farm
 jobs:
+   Build_Images:
+      # Build images via AWS CI
+      runs-on: [ the-capable-hub-aws-ci ]
+
+      steps:
+         - name: Build/Download images
+           run: |
+              # Ideally we'd build images here, as part of an existing repo, but for
+              # demonstrating purposes we will use use wget to obtain pre-built artifacts
+
+              # Obtain SD card image and bitstream
+              wget https://github.com/openhwgroup/cva6/releases/download/v4.2.0/ariane_xilinx.bit
+              wget https://github.com/openhwgroup/cva6-sdk/releases/download/v0.3.0-op/bbl.bin
+
+         - name: Upload build artifacts
+           uses: actions/upload-artifact@v4
+           with:
+              name: cva6-artifacts
+              path: |
+                 ariane_xilinx.bit
+                 bbl.bin
+
+   # Flash, Boot, Validate in the board farm
    Boot_Test:
       # Ensure we have access to he Genesys2 board in The Capable Hub's farm
       runs-on: [the-capable-hub-farm, board:Genesys2]
+      needs: Build_Images
 
       steps:
-        - name: Check out repository
-          uses: actions/checkout@v5
+         - name: Check out repository
+           uses: actions/checkout@v5
 
-        - name: Flash FPGA bitstream
-          run: |
-            # Power on board
-            sudo usbrelay HURTM_1=1
+         - name: Download a build artifacts
+           uses: actions/download-artifact@v5
+           with:
+              name: cva6-artifacts
 
-            # Download and flash bistream
-            wget https://github.com/openhwgroup/cva6/releases/download/v4.2.0/ariane_xilinx.bit
-            sudo openFPGALoader -b genesys2 ariane_xilinx.bit
-        - name: Flash SD card
-          run: |
-            # Power off board
-            sudo usbrelay HURTM_1=0
+         - name: Flash FPGA bitstream
+           run: |
+              # Power on board
+              sudo usbrelay HURTM_1=1
 
-            # Flash image to SD card
-            sudo usbsdmux /dev/sg1 host
-            wget https://github.com/openhwgroup/cva6-sdk/releases/download/v0.3.0-op/bbl.bin
-            sudo dd if=bbl.bin of=/dev/sda bs=4M oflag=sync
-            sudo usbsdmux /dev/sg1 dut
-        - name: Verify Boot
-          run: |
-            # Power on board
-            sudo usbrelay HURTM_1=1
+              # Download and flash bistream
+              sleep 2
+              sudo openFPGALoader -b genesys2 ariane_xilinx.bit
+         - name: Flash SD card
+           run: |
+              # Power off board
+              sudo usbrelay HURTM_1=0
 
-            # Wait for login prompt
-            source /opt/labgrid-env/bin/activate
-            sudo -E `which pytest` --lg-env local.yaml --capture=no test_shell.py
+              # Flash image to SD card
+              sudo usbsdmux /dev/sg1 host
+              wget https://github.com/openhwgroup/cva6-sdk/releases/download/v0.3.0-op/bbl.bin
+              sudo dd if=bbl.bin of=/dev/sda bs=4M oflag=sync
+              sudo usbsdmux /dev/sg1 dut
+         - name: Verify Boot
+           run: |
+              # Power on board
+              sudo usbrelay HURTM_1=1
 
-            # Power off board
-            sudo usbrelay HURTM_1=0
+              # Wait for login prompt
+              source /opt/labgrid-env/bin/activate
+              sudo -E `which pytest` --lg-env local.yaml --capture=no test_shell.py
+
+              # Power off board
+              sudo usbrelay HURTM_1=0
